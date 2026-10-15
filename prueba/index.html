@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>¿Perro o gato? En vivo</title>
+<style>
+  body { font-family: system-ui, sans-serif; background:#111; margin:0; color:#fff; text-align:center; }
+  #contenedor { position:relative; max-width:480px; margin:auto; }
+  video { width:100%; display:block; background:#000; }
+  #resultado { position:absolute; left:0; right:0; bottom:0; padding:14px; font-size:1.6rem; font-weight:700;
+    background:rgba(0,0,0,.6); }
+  .botones { padding:14px; display:flex; gap:10px; max-width:480px; margin:auto; }
+  button { flex:1; padding:14px; border:none; border-radius:12px; font-size:1rem; background:#4f46e5; color:#fff; }
+  #msg { padding:0 14px 14px; color:#aaa; font-size:.9rem; }
+</style>
+</head>
+<body>
+<h2>🐶 ¿Perro o gato? 🐱</h2>
+
+<div id="contenedor">
+  <video id="video" autoplay playsinline muted></video>
+  <div id="resultado">Pulsa "Iniciar cámara"</div>
+</div>
+
+<div class="botones">
+  <button id="iniciar">📷 Iniciar cámara</button>
+  <button id="girar">🔄 Girar</button>
+</div>
+<div id="msg"></div>
+
+<canvas id="canvas" width="160" height="160" hidden></canvas>
+
+<script>
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("canvas");
+  const ctx = canvas.getContext("2d");
+  const resultado = document.getElementById("resultado");
+  const msg = document.getElementById("msg");
+  let facing = "environment";
+  let stream = null;
+  let activo = false;
+
+  async function abrirCamara() {
+    if (stream) stream.getTracks().forEach(t => t.stop());
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: facing }, audio: false
+      });
+      video.srcObject = stream;
+      msg.textContent = "";
+      if (!activo) { activo = true; bucle(); }
+    } catch (e) {
+      msg.textContent = "No se pudo abrir la cámara: " + e.message + " (necesita HTTPS y permiso de cámara)";
+    }
+  }
+
+  async function bucle() {
+    if (!activo) return;
+    if (video.videoWidth) {
+      // recorte cuadrado del centro del video -> 160x160
+      const lado = Math.min(video.videoWidth, video.videoHeight);
+      const sx = (video.videoWidth - lado) / 2;
+      const sy = (video.videoHeight - lado) / 2;
+      ctx.drawImage(video, sx, sy, lado, lado, 0, 0, 160, 160);
+
+      const blob = await new Promise(r => canvas.toBlob(r, "image/jpeg", 0.8));
+      const datos = new FormData();
+      datos.append("imagen", blob, "frame.jpg");
+      try {
+        const resp = await fetch("/predecir", { method: "POST", body: datos });
+        const json = await resp.json();
+        resultado.textContent = `${json.etiqueta}  ${json.confianza}%`;
+      } catch (e) {
+        resultado.textContent = "Error de conexión";
+      }
+    }
+    setTimeout(bucle, 500); // espera a terminar y vuelve a clasificar
+  }
+
+  document.getElementById("iniciar").addEventListener("click", abrirCamara);
+  document.getElementById("girar").addEventListener("click", () => {
+    facing = facing === "environment" ? "user" : "environment";
+    abrirCamara();
+  });
+</script>
+</body>
+</html>
